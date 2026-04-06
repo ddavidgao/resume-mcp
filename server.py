@@ -14,12 +14,79 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from mcp.server.fastmcp import FastMCP
 
 import database as db
-from scraper import parse_job_posting, JobPosting
+from scraper import parse_job_posting, fetch_page_text, JobPosting
 from generator import generate_resume_for_job, compile_latex_to_pdf, ensure_output_dir
 from reviewer import run_ats_check, build_evaluation_context
 from tracker import add_application, update_status, get_stats, TRACKER_PATH
 
 mcp = FastMCP("resume-builder")
+
+
+# ==================== ONBOARDING TOOLS ====================
+
+@mcp.tool()
+def setup_profile(
+    website_url: str = None,
+    resume_text: str = None,
+    linkedin_url: str = None,
+) -> str:
+    """
+    First-run onboarding tool. Collects raw profile data from multiple sources
+    and returns everything to the calling LLM with instructions to populate the
+    profile database using the appropriate tools.
+
+    Args:
+        website_url: Personal website or portfolio URL to scrape
+        resume_text: Paste the full contents of your resume here
+        linkedin_url: LinkedIn profile URL to scrape
+    """
+    result = {}
+
+    if website_url:
+        try:
+            result["website_content"] = fetch_page_text(website_url)
+        except Exception as e:
+            result["website_content"] = f"[Error scraping {website_url}: {e}]"
+
+    if resume_text:
+        result["resume_content"] = resume_text
+
+    if linkedin_url:
+        try:
+            result["linkedin_content"] = fetch_page_text(linkedin_url)
+        except Exception as e:
+            result["linkedin_content"] = f"[Error scraping {linkedin_url}: {e}]"
+
+    result["existing_profile"] = db.get_full_profile()
+
+    result["instructions"] = (
+        "You have the candidate's raw website and/or resume text above. "
+        "Extract all professional information and populate the profile using these tools: "
+        "set_contact_info, add_experience, add_project, add_education, bulk_add_skills. "
+        "For each experience and project, include relevant technology tags for job matching. "
+        "After populating, show the user a summary of what you added and ask if anything needs correcting."
+    )
+
+    return json.dumps(result, indent=2, default=str)
+
+
+@mcp.tool()
+def reset_profile() -> str:
+    """
+    Clear all profile data and start fresh. Drops and recreates all profile tables
+    (contact, education, experience, project, skill). Does NOT delete generated resumes.
+    """
+    conn = db.get_db()
+    conn.executescript("""
+        DROP TABLE IF EXISTS contact;
+        DROP TABLE IF EXISTS education;
+        DROP TABLE IF EXISTS experience;
+        DROP TABLE IF EXISTS project;
+        DROP TABLE IF EXISTS skill;
+    """)
+    conn.close()
+    db.init_db()
+    return "Profile reset. All contact, education, experience, project, and skill data cleared."
 
 
 # ==================== PROFILE TOOLS ====================
