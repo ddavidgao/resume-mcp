@@ -71,6 +71,121 @@ def setup_profile(
 
 
 @mcp.tool()
+def check_profile_updates() -> str:
+    """
+    Detect what has changed in your profile since the last resume was generated.
+
+    Compares the current profile against what was used in the most recently generated
+    resume and returns a structured diff showing:
+    - New experiences not included in the last resume
+    - New projects not included in the last resume
+    - New skills not included in the last resume
+    - Experiences/projects updated after the last resume was generated
+    - Which existing resumes might benefit from regeneration
+    """
+    resumes = db.get_generated_resumes(limit=1)
+    if not resumes:
+        profile = db.get_full_profile()
+        return json.dumps({
+            "status": "no_resumes_generated",
+            "message": "No resumes have been generated yet. Your full profile is new.",
+            "current_profile_summary": {
+                "experiences": len(profile["experience"]),
+                "projects": len(profile["projects"]),
+                "skills": sum(len(v) for v in profile["skills"].values()),
+            },
+        }, indent=2)
+
+    latest = db.get_generated_resume(resumes[0]["id"])
+    generated_at = latest["created_at"]
+    used_exp_ids = set(latest["selected_experience_ids"])
+    used_proj_ids = set(latest["selected_project_ids"])
+    used_skills = set(latest["selected_skills"])
+
+    profile = db.get_full_profile()
+
+    new_experiences = []
+    updated_experiences = []
+    for exp in profile["experience"]:
+        exp_id = exp["id"]
+        updated_at = exp.get("updated_at", "")
+        if exp_id not in used_exp_ids:
+            new_experiences.append({
+                "id": exp_id,
+                "company": exp["company"],
+                "title": exp["title"],
+                "start_date": exp.get("start_date"),
+            })
+        elif updated_at and updated_at > generated_at:
+            updated_experiences.append({
+                "id": exp_id,
+                "company": exp["company"],
+                "title": exp["title"],
+                "updated_at": updated_at,
+            })
+
+    new_projects = []
+    updated_projects = []
+    for proj in profile["projects"]:
+        proj_id = proj["id"]
+        updated_at = proj.get("updated_at", "")
+        if proj_id not in used_proj_ids:
+            new_projects.append({
+                "id": proj_id,
+                "name": proj["name"],
+                "tech_stack": proj.get("tech_stack", []),
+            })
+        elif updated_at and updated_at > generated_at:
+            updated_projects.append({
+                "id": proj_id,
+                "name": proj["name"],
+                "updated_at": updated_at,
+            })
+
+    new_skills = []
+    for category, skills in profile["skills"].items():
+        for skill in skills:
+            if skill["name"] not in used_skills:
+                new_skills.append({"category": category, "name": skill["name"]})
+
+    has_changes = bool(new_experiences or new_projects or new_skills
+                       or updated_experiences or updated_projects)
+
+    resumes_to_regenerate = []
+    if has_changes:
+        for r in db.get_generated_resumes(limit=10):
+            resumes_to_regenerate.append({
+                "resume_id": r["id"],
+                "job_title": r["job_title"],
+                "company": r["company"],
+                "generated_at": r["created_at"],
+                "match_score": r["match_score"],
+            })
+
+    return json.dumps({
+        "last_resume": {
+            "id": latest["id"],
+            "job_title": latest["job_title"],
+            "company": latest["company"],
+            "generated_at": generated_at,
+        },
+        "changes_detected": has_changes,
+        "new_experiences": new_experiences,
+        "updated_experiences": updated_experiences,
+        "new_projects": new_projects,
+        "updated_projects": updated_projects,
+        "new_skills": new_skills,
+        "resumes_that_may_benefit_from_regeneration": resumes_to_regenerate,
+        "recommendation": (
+            "Profile has changed since your last resume was generated. "
+            "Consider regenerating resumes for active applications."
+            if has_changes else
+            "Your profile is up to date with your most recent resume."
+        ),
+    }, indent=2, default=str)
+
+
+@mcp.tool()
 def reset_profile() -> str:
     """
     Clear all profile data and start fresh. Drops and recreates all profile tables
