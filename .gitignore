@@ -1,0 +1,10 @@
+__pycache__/
+*.pyc
+.resume-mcp/
+*.db
+*.xlsx
+.env
+
+# Personal seed files — copy seed_profile.py, rename, keep your data local
+seed_david.py
+seed_*.local.py
