@@ -142,6 +142,56 @@ def escape_latex(text: str) -> str:
     return text
 
 
+# Word-level AI tell replacements applied to every bullet before LaTeX rendering.
+# These are unambiguous swaps that won't change meaning but remove AI fingerprints.
+_AI_WORD_REPLACEMENTS = [
+    # Punctuation
+    (r'\u2014', '-'),   # em dash —
+    (r'\u2013', '-'),   # en dash –
+    # Filler
+    (r'\bIn order to\b', 'To'),
+    (r'\bin order to\b', 'to'),
+    # Buzzwords with clear drop-ins
+    (r'\b[Ll]everaged\b', 'used'),
+    (r'\b[Ll]everage\b', 'use'),
+    (r'\b[Uu]tilized\b', 'used'),
+    (r'\b[Uu]tilize\b', 'use'),
+    (r'\b[Uu]tilizes\b', 'uses'),
+    (r'\b[Ss]pearheaded\b', 'led'),
+    (r'\b[Ss]pearhead\b', 'lead'),
+    (r'\b[Oo]rchestrated\b', 'coordinated'),
+    (r'\b[Oo]rchestrate\b', 'coordinate'),
+    (r'\b[Ss]treamlined\b', 'improved'),
+    (r'\b[Ss]treamline\b', 'improve'),
+    (r'\b[Ff]ostered\b', 'built'),
+    (r'\b[Ff]oster\b', 'build'),
+    (r'\b[Pp]ivotal\b', 'key'),
+    (r'\b[Mm]eticulously\b', 'carefully'),
+    (r'\b[Mm]eticulous\b', 'careful'),
+    (r'\b[Ss]eamlessly\b', 'smoothly'),
+    (r'\b[Ss]eamless\b', 'smooth'),
+    (r'\b[Cc]utting-edge\b', 'modern'),
+    (r'\b[Ss]tate-of-the-art\b', 'modern'),
+    (r'\b[Ii]nnovative\b', 'new'),
+    (r'\b[Rr]obust\b', 'reliable'),
+    (r'\b[Cc]hampioned\b', 'led'),
+    (r'\b[Cc]hampion\b', 'lead'),
+]
+
+_compiled_ai_replacements = [
+    (re.compile(pat), repl) for pat, repl in _AI_WORD_REPLACEMENTS
+]
+
+
+def humanize_bullet(text: str) -> str:
+    """Remove common AI writing tells from a bullet string."""
+    for pattern, replacement in _compiled_ai_replacements:
+        text = pattern.sub(replacement, text)
+    # Collapse any double spaces left by removals
+    text = re.sub(r'  +', ' ', text).strip()
+    return text
+
+
 def generate_latex(profile: dict, selection: dict, job: JobPosting) -> str:
     """Generate a complete LaTeX resume tailored to the job."""
     contact = profile.get("contact", {}) or {}
@@ -201,7 +251,7 @@ def generate_latex(profile: dict, selection: dict, job: JobPosting) -> str:
         dates = f"{start} -- {end}"
 
         bullets = "\n".join(
-            f"        \\resumeItem{{{escape_latex(b)}}}"
+            f"        \\resumeItem{{{escape_latex(humanize_bullet(b))}}}"
             for b in exp.get("bullets", [])
         )
 
@@ -227,7 +277,7 @@ def generate_latex(profile: dict, selection: dict, job: JobPosting) -> str:
             proj_header = f"\\resumeProjectHeading{{\\textbf{{{name_esc}}} $|$ \\emph{{\\small {tech}}}}}{{}}"
 
         bullets = "\n".join(
-            f"        \\resumeItem{{{escape_latex(b)}}}"
+            f"        \\resumeItem{{{escape_latex(humanize_bullet(b))}}}"
             for b in proj.get("bullets", [])
         )
 
